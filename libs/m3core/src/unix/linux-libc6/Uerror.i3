@@ -2,7 +2,8 @@
 (* All rights reserved.                                       *)
 (* See the file COPYRIGHT for a full description.             *)
 
-(* Last modified on Fri Feb 24 14:53:26 PST 1995 by kalsow            *)
+(* Last modified on Mon Jan  5 01:05:58 GMT 1998 by rrw               *)
+(*      modified on Fri Feb 24 14:53:26 PST 1995 by kalsow            *)
 (*      modified on Tue Feb 14 20:02:55 GMT 1995 by rrw1000@cam.ac.uk *)
 (*      modified on Thu Jul 21 00:00:00 1994 by sims@usa.acsys.com    *)
 (*      modified on Thu Nov 22 05:20:45 1990 by muller                *)
@@ -64,7 +65,7 @@ CONST
 
    (* Non-blocking I/O  and IPC errors *)
   EWOULDBLOCK     = 11;   (* Operation would block *) (* Defined as EAGAIN, not
-                             41 under 1.1.73 *)
+                             41 under 1.1.73, and likewise in 2.0.x *)
   ENOMSG          = 42;   (* No message of desired type *)
   EIDRM           = 43;   (* Identifier removed *)
   ECHRNG          = 44;   (* Channel number out of range *)
@@ -153,6 +154,8 @@ CONST
   EISNAM          = 120;   (* Is a named type file *)
   EREMOTEIO       = 121;   (* Remote I/O error *)
   EDQUOT          = 122;   (* Disc quota exceeded *)
+
+  (* Even more misc errors *)
   ENOMEDIUM       = 123;  (* No medium found *)
   EMEDIUMTYPE     = 124;  (* Wrong medium type *)
 

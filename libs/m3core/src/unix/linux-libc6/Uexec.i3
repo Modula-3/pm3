@@ -2,7 +2,8 @@
 (* All rights reserved.                                        *)
 (* See the file COPYRIGHT for a full description.              *)
 (*                                                             *)
-(* Last modified on Fri Apr 29 14:19:35 PDT 1994 by kalsow     *)
+(* Last modified on Mon Jan  5 09:41:49 GMT 1998 by rrw        *)
+(*      modified on Fri Apr 29 14:19:35 PDT 1994 by kalsow     *)
 (*      modified on Sat Apr 16 by rrw1000@hermes.cam.ac.uk     *)
 (*      modified on Tue Mar 24 20:01:29 PST 1992 by muller     *)
 (*      modified on Mon Jul  9 16:47:46 PDT 1990 by mjordan    *)
@@ -30,13 +31,15 @@ PROCEDURE execvp(
     argv: Ctypes.char_star_star)
     : Ctypes.int
     RAISES {};
-    
+
 <*EXTERNAL*>
 PROCEDURE execve(
     name : Ctypes.char_star;
     arg : Ctypes.char_star_star;
     envp : Ctypes.char_star_star) : Ctypes.int;
 
+
+(* What does this do ? - rrw *) 
 <*EXTERNAL*> 
 PROCEDURE exect(
     name: Ctypes.char_star;

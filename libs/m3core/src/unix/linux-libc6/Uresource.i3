@@ -14,8 +14,8 @@ IMPORT Utime;
 (*** <sys/resource.h> ***)
 
 CONST
-  PRIO_MIN = -99;
-  PRIO_MAX = 14;
+  PRIO_MIN = -20;
+  PRIO_MAX = 20;
 
   PRIO_PROCESS = 0;
   PRIO_PGRP    = 1;
@@ -67,7 +67,7 @@ CONST
   RLIMIT_MEMLOCK = 8;           (* Max locked-in-memory address space *)
   RLIMIT_AS = 9;                (* Address space limit *)
 
-  RLIM_NLIMITS = 10;		(* number of resource limits *
+  RLIM_NLIMITS = 10;		(* number of resource limits *)
 
   RLIM_INFINITY	= 16_7fffffff;
 

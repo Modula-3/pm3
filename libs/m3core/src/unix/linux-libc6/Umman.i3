@@ -26,7 +26,7 @@ CONST
   MAP_FIXED   = 16_10;
   MAP_RENAME  = 16_20; (* Doesn't appear to be supported any more - rrw *)
   MAP_ANONYMOUS = 16_20;
-  MAP_NORESERVE = 16_4000; (* Neither does this - rrw *)
+  MAP_NORESERVE = 16_4000; 
 
   MAP_GROWSDOWN = 16_100; (* Stack-like segment *)
   MAP_DENYWRITE = 16_800; (* ETXTBSY *)
@@ -56,9 +56,9 @@ CONST
 
   MCL_CURRENT     = 16_1;
   MCL_FUTURE      = 16_2;
-
-  MREMAP_MAYMOVE  = 1;
    
+  MREMAP_MAYMOVE  = 1;
+
 <*EXTERNAL*>
 PROCEDURE mmap (addr: caddr_t; len: size_t; prot,flags,fd: int; off: off_t)
   : caddr_t;

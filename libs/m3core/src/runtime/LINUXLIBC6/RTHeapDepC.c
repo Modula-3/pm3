@@ -2,12 +2,11 @@
 /* All rights reserved. */
 /* See the file COPYRIGHT for a full description. */
 
-/* Last modified on Wed Jun 11 12:45:49 EST 1997 by dagenais */
-/*      modified on Fri Jun 21 12:45:49 PDT 1996 by heydon */
+/* Last modified on Fri Jun 21 12:45:49 PDT 1996 by heydon */
 /*      modified on Thu Jun 29 09:42:09 PDT 1995 by kalsow */
 /*      modified on Tue Feb  2 11:15:57 PST 1993 by jdd */
 
-/* This is RTHeapDepC.c for Linux. (michel.dagenais@polymtl.ca) */
+/* This is RTHeapDepC.c for Linux. */
 
 /* This file implements wrappers for almost all Linux system calls
    that take pointers as arguments.  These wrappers allow the system
@@ -55,6 +54,9 @@
 
    6) audgen, whose manpage is incomprehensible.
 
+   7) clone, which (like profil) updates one of its arguments (the other
+      thread's stack) after it has returned.
+
    (Some calls in Section 2 are already wrappers for other system
    calls; it is not necessary to reimplement them here.)
 
@@ -64,6 +66,28 @@
    Finally, if a system call references an object on the heap, each
    pointer must reference only one object.  Therefore, it is not
    possible to write the heap contents with a single write. */
+
+/* Added the following for glibc6 - rrw.
+   
+   umount
+   munlock
+   delete_module
+   modify_ldt
+   query_module
+   clone (sort-of : we need a wrapper to make sure gc is finished before 
+        fork())
+   bdflush
+   statfs
+
+
+   */
+
+/* Not added due to lack of docs :
+
+   break
+
+   */
+
 
 #include <stdarg.h>
 #include <sys/types.h>
@@ -79,6 +103,7 @@
 #include <sys/uio.h>
 #include <sys/ipc.h>
 #include <dirent.h>
+#include <sys/times.h>
 
 extern int RT0u__inCritical;
 #define ENTER_CRITICAL RT0u__inCritical++
@@ -90,14 +115,15 @@ void (*RTCSRC_FinishVM)();
 static char RTHeapDepC__c;
 #define MAKE_READABLE(x) if (x) { RTHeapDepC__c = *(char*)(x); }
 #define MAKE_WRITABLE(x) if (x) { *(char*)(x) = RTHeapDepC__c = *(char*)(x); }
+#define MAKE_WRITEABLE MAKE_WRITABLE
+
+/* glibc has no socketcall() */
+#define socketcall(a,b) syscall(SYS_socketcall,a,b)
 
 /* Unless otherwise noted, all the following wrappers have the same
    structure. */
 
-int accept(sockfd, peer, paddrlen)
-int sockfd;
-const struct sockaddr *peer;
-int *paddrlen;
+int accept(int sockfd, struct sockaddr *peer, socklen_t *paddrlen)
 { int result;
 
   unsigned long args[3];
@@ -109,7 +135,7 @@ int *paddrlen;
   args[0] = sockfd;
   args[1] = (unsigned long)peer;
   args[2] = (unsigned long)paddrlen;
-  result = socketcall(SYS_ACCEPT, args);
+  result = socketcall(SOCKOP_accept, args);
 
   EXIT_CRITICAL;
   return result;
@@ -138,9 +164,7 @@ char *file;
   return result;
 }
 
-int adjtime(delta, olddelta)
-struct timeval *delta;
-struct timeval *olddelta;
+int adjtime(const struct timeval *delta, struct timeval *olddelta)
 { int result;
 
   ENTER_CRITICAL;
@@ -213,10 +237,23 @@ char *tokenp, *argv[];
 }
 */
 
-int bind(sockfd, myaddr, addrlen)
-int sockfd;
-const struct sockaddr *myaddr;
-int addrlen;
+int bdflush(func, thing) 
+  int func;
+  void *thing;
+{
+  int ret;
+
+  ENTER_CRITICAL;
+  if (func >= 3 && (func%2)==1) {
+    MAKE_WRITEABLE(thing);
+  }
+  ret = syscall(SYS_bdflush, func, thing);
+  EXIT_CRITICAL;
+
+  return ret;
+}
+
+int bind(int sockfd, const struct sockaddr *myaddr, socklen_t addrlen)
 { int result;
 
   unsigned long args[3];
@@ -227,7 +264,7 @@ int addrlen;
   args[0] = sockfd;
   args[1] = (unsigned long)myaddr;
   args[2] = addrlen;
-  result = socketcall(SYS_BIND, args);
+  result = socketcall(SOCKOP_bind, args);
 
   EXIT_CRITICAL;
   return result;
@@ -306,10 +343,7 @@ char *dirname;
   return result;
 }
 
-int connect(sockfd, saddr, addrlen)
-int sockfd;
-const struct sockaddr *saddr;
-int addrlen;
+int connect(int sockfd, const struct sockaddr *saddr, socklen_t addrlen)
 { int result;
 
   unsigned long args[3];
@@ -320,7 +354,7 @@ int addrlen;
   args[0] = sockfd;
   args[1] = (unsigned long)saddr;
   args[2] = addrlen;
-  result = socketcall(SYS_CONNECT, args);
+  result = socketcall(SOCKOP_connect, args);
 
   EXIT_CRITICAL;
   return result;
@@ -337,6 +371,16 @@ mode_t mode;
   EXIT_CRITICAL;
   return result;
 }
+
+int delete_module(const char *name) {
+  int result;
+  
+  ENTER_CRITICAL;
+  MAKE_READABLE(name);
+  result = syscall(SYS_delete_module, name);
+  EXIT_CRITICAL;
+  return result;
+  }
 
 /* execve is implemented differently since it does not return, which
    would leave RT0u__inCritical set in the parent if called in the child
@@ -491,9 +535,7 @@ int grouplist[];
   return result;
 }
 
-int getitimer(which, value)
-int which;
-struct itimerval *value;
+int getitimer(enum __itimer_which which, struct itimerval *value)
 { int result;
 
   ENTER_CRITICAL;
@@ -521,10 +563,7 @@ char *path;
 }
 */
 
-int getpeername(sockfd, addr, paddrlen)
-int sockfd;
-struct sockaddr *addr;
-int *paddrlen;
+int getpeername(int sockfd, struct sockaddr *addr, socklen_t *paddrlen)
 { int result;
 
   unsigned long args[3];
@@ -536,7 +575,7 @@ int *paddrlen;
   args[0] = sockfd;
   args[1] = (unsigned long)addr;
   args[2] = (unsigned long)paddrlen;
-  result = socketcall(SYS_GETPEERNAME, args);
+  result = socketcall(SOCKOP_getpeername, args);
 
   EXIT_CRITICAL;
   return result;
@@ -566,10 +605,7 @@ struct rusage *rusage;
   return result;
 }
 
-int getsockname(sockfd, addr, paddrlen)
-int sockfd;
-struct sockaddr *addr;
-int *paddrlen;
+int getsockname(int sockfd, struct sockaddr *addr, socklen_t *paddrlen)
 { int result;
 
   unsigned long args[3];
@@ -581,16 +617,13 @@ int *paddrlen;
   args[0] = sockfd;
   args[1] = (unsigned long)addr;
   args[2] = (unsigned long)paddrlen;
-  result = socketcall(SYS_GETSOCKNAME, args);
+  result = socketcall(SOCKOP_getsockname, args);
 
   EXIT_CRITICAL;
   return result;
 }
 
-int getsockopt(fd, level, optname, optval, optlen)
-int fd, level, optname;
-void *optval;
-int *optlen;
+int getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 { int result;
 
   unsigned long args[5];
@@ -604,7 +637,7 @@ int *optlen;
   args[2]=optname;
   args[3]=(unsigned long)optval;
   args[4]=(unsigned long)optlen;
-  result = (socketcall (SYS_GETSOCKOPT, args));
+  result = (socketcall (SOCKOP_getsockopt, args));
 
   EXIT_CRITICAL;
   return result;
@@ -711,6 +744,19 @@ int dev;
   return result;
 }
 
+int modify_ldt(func, ptr, bytecount)
+  int func;
+  void *ptr;
+  int bytecount;
+{ int result;
+
+ ENTER_CRITICAL;
+ MAKE_WRITEABLE(ptr);
+ result = syscall(SYS_modify_ldt, func, ptr, bytecount);
+ EXIT_CRITICAL;
+ return result;
+}
+
 int mount(special, name, rwflag, type, options)
 char *special;
 char *name;
@@ -730,12 +776,26 @@ char *options;
   return result;
 }
 
-/* Taken from linux/ip.h, but normally only accessible to kernel */
+int munlock(addr, len) 
+     const void *addr;
+     size_t len;
+{ int result;
 
+  ENTER_CRITICAL;
+  MAKE_READABLE(addr);
+  result = syscall(SYS_munlock, addr, len);
+  EXIT_CRITICAL;
+  return result;
+}
+
+/* Taken from linux/ip.h, but normally only accessible to kernel */
+/* .. not anymore in glibc 2 */
+#ifndef __GLIBC__
 struct ipc_kludge {
     struct msgbuf *msgp;
     long msgtyp;
 };
+#endif
 
 #define SEMOP           1
 #define SEMGET          2
@@ -748,6 +808,7 @@ struct ipc_kludge {
 #define SHMDT           22
 #define SHMGET          23
 #define SHMCTL          24
+
 
 int msgctl(msqid, cmd, buf)
 int msqid, cmd;
@@ -771,12 +832,7 @@ struct msqid_ds *buf;
   return result;
 }
 
-int msgrcv(msqid, msgp, msgsz, msgtyp, msgflg)
-int msqid;
-struct msgbuf *msgp;
-int msgsz;
-long msgtyp;
-int msgflg;
+int msgrcv(int msqid, void *msgp, size_t msgsz, long int msgtyp, int msgflg)
 { int result;
 
   struct ipc_kludge tmp; 
@@ -792,11 +848,7 @@ int msgflg;
   return result;
 }
 
-int msgsnd(msqid, msgp, msgsz, msgflg)
-int msqid;
-struct msgbuf *msgp;
-int msgsz;
-int msgflg;
+int msgsnd(int msqid, void *msgp, size_t msgsz, int msgflg)
 { int result;
 
   ENTER_CRITICAL;
@@ -823,6 +875,24 @@ int open(const char *filename, int flags, ...)
     result = syscall(SYS_open, filename, flags);
   }
   EXIT_CRITICAL;
+  return result;
+}
+
+int query_module(name, which, buf, bufsize, ret)
+  const char *name;
+  int which;
+  void *buf;
+  size_t bufsize;
+  size_t *ret;
+{
+  int result;
+  
+  ENTER_CRITICAL;
+  MAKE_READABLE(name);
+  MAKE_WRITEABLE(buf); MAKE_WRITEABLE(ret);
+  result = query_module(name, which, buf, bufsize, ret);
+  EXIT_CRITICAL;
+
   return result;
 }
 
@@ -878,10 +948,7 @@ int bufsiz;
   return result;
 }
 
-int readv(d, iov, count)
-int d;
-const struct iovec *iov;
-size_t count;
+ssize_t readv(int d, const struct iovec *iov, int count)
 { int result;
 
   ENTER_CRITICAL;
@@ -898,11 +965,7 @@ size_t count;
   return result;
 }
 
-int recv(sockfd, buffer, len, flags)
-int sockfd;
-void *buffer;
-size_t len;
-unsigned int flags;
+int recv(int sockfd, void *buffer, size_t len, int flags)
 { int result;
 
   unsigned long args[4];
@@ -914,19 +977,14 @@ unsigned int flags;
   args[1] = (unsigned long) buffer;
   args[2] = len;
   args[3] = flags;
-  result = (socketcall (SYS_RECV, args));
+  result = (socketcall (SOCKOP_recv, args));
 
   EXIT_CRITICAL;
   return result;
 }
 
-int recvfrom(sockfd, buffer, len, flags, to, tolen)
-int sockfd;
-void *buffer;
-size_t len;
-unsigned flags;
-struct sockaddr *to;
-int *tolen;
+int recvfrom(int sockfd, void *buffer, size_t len, int flags, 
+		struct sockaddr *to, socklen_t *tolen)
 { int result;
 
   unsigned long args[6];
@@ -942,7 +1000,7 @@ int *tolen;
   args[3] = flags;
   args[4] = (unsigned long) to;
   args[5] = (unsigned long) tolen;
-  result = (socketcall (SYS_RECVFROM, args));
+  result = (socketcall (SOCKOP_recvfrom, args));
 
   EXIT_CRITICAL;
   return result;
@@ -951,7 +1009,7 @@ int *tolen;
 int recvmsg(sockfd, msg, flags)
 int sockfd;
 struct msghdr *msg;
-unsigned flags;
+int flags;
 { int result;
 
   unsigned long args[3];
@@ -975,7 +1033,7 @@ unsigned flags;
   args[0] = sockfd;
   args[1] = (unsigned long) msg;
   args[2] = flags;
-  result = (socketcall (SYS_RECVMSG, args));
+  result = (socketcall (SOCKOP_recvmsg, args));
 
   EXIT_CRITICAL;
   return result;
@@ -1063,11 +1121,7 @@ unsigned nsops;
   return result;
 }
 
-int send(sockfd, buffer, len, flags)
-int sockfd;
-const void *buffer;
-size_t len;
-unsigned flags;
+int send(int sockfd, const void *buffer, size_t len, int flags)
 { int result;
 
   unsigned long args[4];
@@ -1079,16 +1133,13 @@ unsigned flags;
   args[1] = (unsigned long) buffer;
   args[2] = len;
   args[3] = flags;
-  result = (socketcall (SYS_SEND, args));
+  result = (socketcall (SOCKOP_send, args));
 
   EXIT_CRITICAL;
   return result;
 }
 
-int sendmsg(sockfd, msg, flags)
-int sockfd;
-const struct msghdr *msg;
-unsigned flags;
+int sendmsg(int sockfd, const struct msghdr *msg, int flags)
 { int result;
 
   unsigned long args[3];
@@ -1112,19 +1163,14 @@ unsigned flags;
   args[0] = sockfd;
   args[1] = (unsigned long) msg;
   args[2] = flags;
-  result = (socketcall (SYS_SENDMSG, args));
+  result = (socketcall (SOCKOP_sendmsg, args));
 
   EXIT_CRITICAL;
   return result;
 }
 
-int sendto(sockfd, buffer, len, flags, to, tolen)
-int sockfd;
-const void *buffer;
-size_t len;
-unsigned flags;
-const struct sockaddr *to;
-int tolen;
+int sendto(int sockfd, const void *buffer, size_t len, int flags, 
+           const struct sockaddr *to, socklen_t tolen)
 { int result;
 
   unsigned long args[6];
@@ -1139,7 +1185,7 @@ int tolen;
   args[3] = flags;
   args[4] = (unsigned long) to;
   args[5] = tolen;
-  result = (socketcall (SYS_SENDTO, args));
+  result = (socketcall (SOCKOP_sendto, args));
 
   EXIT_CRITICAL;
   return result;
@@ -1181,10 +1227,8 @@ int namelen;
   return result;
 }
 
-int setitimer(which, value, ovalue)
-int which;
-const struct itimerval *value;
-struct itimerval *ovalue;
+int setitimer(enum __itimer_which which, const struct itimerval *value, 
+   struct itimerval *ovalue)
 { int result;
 
   ENTER_CRITICAL;
@@ -1224,8 +1268,8 @@ struct rlimit *rlp;
 
 int setsockopt(fd, level, optname, optval, optlen)
 int fd, level, optname;
-const void *optval;
-int optlen;
+void *optval;
+socklen_t optlen;
 { int result;
 
   unsigned long args[5];
@@ -1238,7 +1282,7 @@ int optlen;
   args[2]=optname;
   args[3]=(unsigned long)optval;
   args[4]=optlen;
-  result = (socketcall (SYS_SETSOCKOPT, args));
+  result = (socketcall (SOCKOP_setsockopt, args));
 
   EXIT_CRITICAL;
   return result;
@@ -1274,7 +1318,8 @@ const struct timezone *tzp;
   return result;
 }
 
-int sigaction(int signum, struct sigaction *act, struct sigaction *oldact)
+int sigaction(int signum, const struct sigaction *act, 
+	      struct sigaction *oldact)
 { int result;
 
   ENTER_CRITICAL;
@@ -1336,7 +1381,7 @@ int sockvec[2];
   args[1] = type;
   args[2] = protocol;
   args[3] = (unsigned long)sockvec;
-  result = socketcall(SYS_SOCKETPAIR, args);
+  result = socketcall(SOCKOP_socketpair, args);
 
   EXIT_CRITICAL;
   return result;
@@ -1389,6 +1434,17 @@ time_t time(time_t *t)
   return result;
 }
 
+clock_t times(struct tms *buf) {
+  clock_t result;
+  
+  ENTER_CRITICAL;
+  MAKE_WRITEABLE(buf);
+  result = syscall(SYS_times, buf);
+  EXIT_CRITICAL;
+
+  return result;
+}
+
 int truncate(path, length)
 char *path;
 int length;
@@ -1400,6 +1456,17 @@ int length;
   EXIT_CRITICAL;
   return result;
 }
+
+int umount(dir) 
+  const char *dir;
+  { int result;
+
+    ENTER_CRITICAL;
+    MAKE_READABLE(dir);
+    result = syscall(SYS_umount, dir);
+    EXIT_CRITICAL;
+    return result;
+  }
 
 int uname(name)
 struct utsname *name;
@@ -1430,13 +1497,13 @@ struct ustat *buf;
 
   ENTER_CRITICAL;
   MAKE_WRITABLE(buf);
-  result = _xustat(1, dev, buf);
+  result = syscall(SYS_ustat, dev, buf);
   EXIT_CRITICAL;
   return result;
 }
 
 int utimes(file, tvp)
-char *file;
+const char *file;
 struct timeval *tvp;
 { int result;
 
@@ -1498,7 +1565,7 @@ static int kernel_writev = 0; /* 0=unknown, 1=yes, 2=no */
 int writev(fd, iov, ioveclen)
 int fd;
 const struct iovec *iov;
-size_t ioveclen;
+int ioveclen;
 { int result;
 
   ENTER_CRITICAL;
@@ -1580,6 +1647,25 @@ pid_t fork()
   ENTER_CRITICAL;
   if (RTCSRC_FinishVM)  RTCSRC_FinishVM();
   result = syscall(SYS_fork);
+  EXIT_CRITICAL;
+  if (result == me) {
+    result = 0;
+  }
+  return result;
+}
+
+/* Clone is nearly the same as fork. */
+pid_t clone(sp, flags)
+     void *sp;
+     int flags;
+{
+  pid_t result;
+  pid_t me = getpid();
+
+  ENTER_CRITICAL;
+  MAKE_WRITEABLE(sp);
+  if (RTCSRC_FinishVM)  RTCSRC_FinishVM();
+  result = syscall(SYS_clone, sp, flags);
   EXIT_CRITICAL;
   if (result == me) {
     result = 0;
